@@ -4,11 +4,13 @@ import logging
 from autogen_core import AgentId
 
 from autogen_http_runtime.runtimes.http import HttpWorkerAgentRuntime
+from samples.string_serializer import StringMessageSerializer
 
 
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
     rt = HttpWorkerAgentRuntime("http://127.0.0.1:9000")
+    rt.add_message_serializer(StringMessageSerializer())
     await rt.start()
 
     reverse = AgentId("reverse", "default")
