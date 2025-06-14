@@ -1,5 +1,5 @@
 **TL;DR**
-`autogen_http_runtime` is a *community‑maintained* drop‑in runtime for the \[Microsoft AutoGen] core framework that works as a drop-in replacement to the gRPC/Protobuf transport with a pure‑HTTP stack built on FastAPI, WebSockets and HTTPX. It lets you run agents locally, on remote machines, or inside container clusters without installing gRPC toolchains or generating code. The package exposes three public classes – `HttpAgentServer`, `HttpAgentService`, and `HttpWorkerAgentRuntime` – that together form a minimal host‑and‑worker model for AutoGen agents. Everything is 100 % Python 3.10+, uses standard asyncio, and is ready to hack on.
+`autogen_http_runtime` is a *community‑maintained* drop‑in runtime for the \[Microsoft AutoGen] core framework that works as a drop-in replacement to the gRPC/Protobuf transport with a pure‑HTTP stack built on FastAPI, WebSockets and HTTPX. It lets you run agents locally, on remote machines, or inside container clusters without installing gRPC toolchains or generating code. The package exposes three public classes – `HttpAgentServer`, `HttpAgentService`, and `HttpWorkerAgentRuntime` – that together form a minimal host‑and‑worker model for AutoGen agents. Everything is 100  % Python 3.10+, uses standard asyncio, and is ready to hack on.
 
 ---
 
@@ -105,6 +105,57 @@ await rt.publish_message({"headline": "42"}, TopicId("news.tech", "server"))
 ```
 
 Subscriptions are stored centrally in the host so multiple workers can react to the same topics without extra plumbing.
+
+### 4.4 Message serialization
+When sending messages between agents over HTTP, `autogen-core` requires explicit serialization. It does **not** serialize primitive Python types like `str` or `int` out of the box. Attempting to send a raw string to a remote agent will raise a `ValueError` because no serializer is found.
+
+To ensure messages can be sent across processes, you have two options:
+
+**1. Use structured messages (recommended)**
+Wrap your data in a `dataclass` or a Pydantic `BaseModel`. This is the most robust and common approach. You must then register a corresponding serializer with your runtime instance.
+
+```python
+from dataclasses import dataclass
+from autogen_core import DataclassJsonMessageSerializer
+
+@dataclass
+class TextMessage:
+    content: str
+
+# Assuming 'runtime' is your HttpWorkerAgentRuntime instance
+runtime.add_message_serializer(DataclassJsonMessageSerializer(TextMessage))
+
+# Now you can send and receive TextMessage objects
+# e.g. from an agent's on_message handler:
+# return TextMessage("this is a reply")
+```
+
+**2. Create a custom serializer**
+For simple cases, you can implement `MessageSerializer` for a primitive type and register it.
+
+```python
+import json
+from autogen_core import MessageSerializer
+
+class StringSerializer(MessageSerializer[str]):
+    @property
+    def data_content_type(self) -> str:
+        return "application/json"
+    
+    @property
+    def type_name(self) -> str:
+        return "str"
+    
+    def deserialize(self, payload: bytes) -> str:
+        return json.loads(payload.decode("utf-8"))
+    
+    def serialize(self, message: str) -> bytes:
+        return json.dumps(message).encode("utf-8")
+
+# Register with your runtime instance
+runtime.add_message_serializer(StringSerializer())
+```
+With this serializer, agents can exchange raw `str` messages.
 
 ---
 
